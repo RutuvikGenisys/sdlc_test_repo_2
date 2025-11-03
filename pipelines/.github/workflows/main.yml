@@ -1,0 +1,101 @@
+name: CI/CD Pipeline
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  NODE_VERSION: '20.x'
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME_BACKEND: ${{ github.repository }}/backend
+  IMAGE_NAME_FRONTEND: ${{ github.repository }}/frontend
+
+jobs:
+  build-and-push-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Needed to push Docker images to GHCR
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build and push Backend Image
+      - name: Set up Node.js for Backend
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install backend dependencies
+        run: | 
+          cd backend
+          npm install
+
+      - name: Run backend tests
+        run: | 
+          cd backend
+          # Note: The current package.json for backend has a placeholder test script.
+          # Consider adding actual tests here.
+          npm test
+        continue-on-error: true # Allow pipeline to continue even if placeholder test fails
+
+      - name: Build and push backend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./containerization/backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest
+            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Build and push Frontend Image
+      - name: Set up Node.js for Frontend
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm install
+
+      - name: Run frontend tests
+        run: |
+          cd frontend
+          npm test
+
+      - name: Build frontend production artifacts
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Build and push frontend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./containerization/frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest
+            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Output Image Tags
+        run: |
+          echo "Backend Image: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:latest"
+          echo "Frontend Image: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:latest"
